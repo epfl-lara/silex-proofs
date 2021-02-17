@@ -57,7 +57,7 @@ Inductive matches: regexpr -> word -> Prop :=
       matches (Repetition e) wr ->
       matches (Repetition e) (we ++ wr).
 
-Hint Constructors matches : matches.
+Local Hint Constructors matches : matches.
 
 (* Regular expressions can be compared for equality. *)
 Lemma regexpr_eq_dec : forall (e1 e2: regexpr),
@@ -145,7 +145,7 @@ Inductive context_matches : context -> word -> Prop :=
     context_matches ctx wctx ->
     context_matches (e :: ctx) (we ++ wctx).
 
-Hint Constructors context_matches : context_matches.
+Local Hint Constructors context_matches : context_matches.
 
 (* Contexts can be compared for equality. *)
 Lemma context_eq_dec : forall (ctx1 ctx2: context),
