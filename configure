@@ -1,0 +1,1 @@
+coq_makefile -Q . Zippers *.v -o Makefile TIMED = true TIMEFMT = "\"\$*: %es\""
