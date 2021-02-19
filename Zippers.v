@@ -162,6 +162,7 @@ Lemma context_matches_non_empty : forall ctx w,
   exists ctx1 e ctx2 we wctx2,
     ctx = ctx1 ++ (e :: ctx2) /\
     w = we ++ wctx2 /\
+    we <> [] /\
     (forall e0, In e0 ctx1 -> matches e0 []) /\
     matches e we /\
     context_matches ctx2 wctx2.
@@ -172,10 +173,11 @@ Proof.
   - destruct we.
     + simpl in *.
       specialize (IHcontext_matches H1) as [ctx1 [e' [ctx2 [we [wctx2 C]]]]].
-      destruct C as [Eqctx [Eqw [N1 [Me' MC]]]].
+      destruct C as [Eqctx [Eqw [Ne [N1 [Me' MC]]]]].
       exists (e :: ctx1), e', ctx2, we, wctx2.
       repeat split.
       * subst. simpl. reflexivity.
+      * assumption.
       * assumption.
       * intros. inversion H2; subst.
         { assumption. }
@@ -184,6 +186,7 @@ Proof.
       * assumption.
     + exists [], e, ctx, (c :: we), wctx.
       repeat split.
+      * intros A. inversion A.
       * intros e0 A. inversion A.
       * assumption.
       * assumption.
@@ -268,6 +271,16 @@ Proof.
       split.
       * right. assumption.
       * assumption.
+Qed.
+
+Theorem unfocus_focus :
+  forall e w,
+    matches (unfocus (focus e)) w <-> matches e w.
+Proof.
+  intros e w.
+  rewrite <- unfocus_correct.
+  rewrite <- focus_correct.
+  reflexivity.
 Qed.
 
 (***** DERIVATION *****)
@@ -590,6 +603,16 @@ Proof.
   eauto using derive_sound, derive_complete.
 Qed.
 
+Theorem derive_correct_unfocus:
+  forall z c w,
+    matches (unfocus (derive c z)) w <->
+    matches (unfocus z) (c :: w).
+Proof.
+  intros.
+  repeat rewrite <- unfocus_correct.
+  split; apply derive_correct.
+Qed.
+
 (* Generalisation of derivatives to words. *)
 Fixpoint derive_word w z :=
    match w with
@@ -609,6 +632,16 @@ Proof.
   split; intros.
   + apply IHw1. apply derive_correct. assumption.
   + apply derive_correct. apply IHw1. assumption.
+Qed.
+
+Theorem derive_word_correct_unfocus:
+  forall z w1 w2,
+    matches (unfocus (derive_word w1 z)) w2 <->
+    matches (unfocus z) (w1 ++ w2).
+Proof.
+  intros.
+  repeat rewrite <- unfocus_correct.
+  split; apply derive_word_correct.
 Qed.
 
 (* Does the zipper z accept the empty word? *)
@@ -655,6 +688,16 @@ Proof.
       split.
       * apply nullable_matches. assumption.
       * apply IHM; eauto.
+Qed.
+
+Theorem nullable_correct_unfocus:
+  forall z,
+    zipper_nullable z = true <->
+    matches (unfocus z) [].
+Proof.
+  intros.
+  rewrite <- unfocus_correct.
+  split; apply zipper_nullable_correct.
 Qed.
 
 (* Does the zipper z accept the word w? *)
@@ -1048,4 +1091,157 @@ Proof.
   apply derive_word_max_zipper with (c :: w).
   { intros A. inversion A. }
   assumption.
+Qed.
+
+Fixpoint productive e :=
+  match e with
+  | Epsilon => true
+  | Failure => false
+  | Character _ => true
+  | Disjunction l r => orb (productive l) (productive r)
+  | Sequence l r => andb (productive l) (productive r)
+  | Repetition _ => true
+  end.
+
+Lemma productive_complete :
+  forall e,
+    (exists w, matches e w) ->
+    productive e = true.
+Proof.
+  induction e; intros; destruct H as [w M]; simpl.
+  - inversion M.
+  - reflexivity.
+  - reflexivity.
+  - apply Bool.orb_true_iff.
+    inversion M; subst.
+    + left. apply IHe1. exists w. assumption.
+    + right. apply IHe2. exists w. assumption.
+  - inversion M; subst.
+    apply Bool.andb_true_iff.
+    split.
+    + apply IHe1. exists wl. assumption.
+    + apply IHe2. exists wr. assumption.
+  - reflexivity.
+Qed.
+
+Fixpoint has_first e :=
+  match e with
+  | Epsilon => false
+  | Failure => false
+  | Character _ => true
+  | Disjunction l r => orb (has_first l) (has_first r)
+  | Sequence l r => orb
+    (andb (has_first l) (productive r))
+    (andb (nullable l) (has_first r))
+  | Repetition e => has_first e
+  end.
+
+Lemma has_first_productive_nullable :
+  forall e,
+    productive e = orb (nullable e) (has_first e).
+Proof.
+  induction e; try reflexivity;
+  simpl; rewrite IHe1, IHe2;
+  destruct (nullable e1);
+  destruct (nullable e2);
+  destruct (has_first e1);
+  destruct (has_first e2);
+  reflexivity.
+Qed.
+
+Lemma has_first_complete :
+  forall e,
+    (exists c w, matches e (c :: w)) ->
+    has_first e = true.
+Proof.
+  induction e; intros; destruct H as [c [w M]]; simpl.
+  - inversion M.
+  - inversion M.
+  - reflexivity.
+  - apply Bool.orb_true_iff.
+    inversion M; subst.
+    + left. apply IHe1. exists c, w. assumption.
+    + right. apply IHe2. exists c, w. assumption.
+  - rewrite Bool.orb_true_iff.
+    repeat rewrite Bool.andb_true_iff.
+    inversion M; subst.
+    destruct wl.
+    + right. split.
+      * apply nullable_matches. assumption.
+      * apply IHe2. exists c, w.
+        simpl in H1; subst.
+        assumption.
+    + left. simpl in H1. inversion H1; subst. split.
+      * apply IHe1.
+        exists c, wl.
+        assumption.
+      * apply productive_complete.
+        exists wr.
+        assumption.
+  - apply MRep1 in M as [w1 [w2 [E [N [M1 M2]]]]].
+    + apply IHe.
+      destruct w1.
+      { contradiction. }
+      inversion E; subst.
+      exists c0, w1. assumption.
+    + intros A. inversion A.
+Qed.
+
+Definition has_first_zipper z := 
+  existsb (fun ctx => andb
+    (forallb productive ctx)
+    (existsb has_first ctx)) z.
+
+Theorem has_first_zipper_complete :
+  forall z,
+    (exists c w, zipper_matches z (c :: w)) ->
+    has_first_zipper z = true.
+Proof.
+  intros.
+  destruct H as [c [w M]].
+  destruct M as [ctx [I M]].
+  unfold has_first_zipper.
+  apply existsb_exists.
+  exists ctx.
+  split. { apply I. }
+  apply Bool.andb_true_iff.
+  clear I z.
+  unshelve epose proof context_matches_non_empty ctx (c :: w) M _.
+  { intros A. inversion A. }
+  destruct H as [ctx1 [e [ctx2 [we [wctx2 [Ectx [Ew [Ne [M1 [Me M2]]]]]]]]]].
+  rewrite Ectx, forallb_app, existsb_app.
+  simpl.
+  repeat rewrite Bool.andb_true_iff.
+  repeat split.
+  + apply forallb_forall. intros e1 I1.
+    apply productive_complete.
+    exists [].
+    apply M1. apply I1.
+  + apply productive_complete.
+    exists we. apply Me.
+  + apply forallb_forall.
+    intros e2 I2.
+    clear Me M1 Ne Ew Ectx we e ctx1 M ctx w c.
+    generalize dependent e2.
+    induction M2; intros; inversion I2; subst.
+    - apply productive_complete.
+      exists we. assumption.
+    - apply IHM2. assumption.
+  + repeat rewrite Bool.orb_true_iff.
+    right. left.
+    destruct we.
+    { contradiction. }
+    apply has_first_complete.
+    exists c0, we. assumption.
+Qed.
+
+Theorem has_first_zipper_complete_unfocus :
+  forall z,
+    (exists c w, matches (unfocus z) (c :: w)) ->
+    has_first_zipper z = true.
+Proof.
+  intros z [c [w M]].
+  rewrite <- unfocus_correct in M.
+  apply has_first_zipper_complete.
+  exists c, w. assumption.
 Qed.
